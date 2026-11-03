@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>영화 티어리스트</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Malgun Gothic', sans-serif;
+    background: #1a1a2e;
+    color: #eee;
+    padding: 20px;
+  }
+  h1 { text-align: center; margin-bottom: 20px; }
+  .controls {
+    text-align: center;
+    margin-bottom: 20px;
+  }
+  .controls button {
+    background: #0f3460;
+    color: #eee;
+    border: none;
+    padding: 10px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 15px;
+  }
+  .controls button:hover { background: #16509e; }
+
+  .tier-row {
+    display: flex;
+    align-items: stretch;
+    margin-bottom: 12px;
+    background: #16213e;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .tier-label {
+    width: 70px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: bold;
+    flex-shrink: 0;
+  }
+  .tier-S { background: #ff7f7f; color: #1a1a2e; }
+  .tier-A { background: #ffbf7f; color: #1a1a2e; }
+  .tier-B { background: #ffff7f; color: #1a1a2e; }
+  .tier-C { background: #7fff7f; color: #1a1a2e; }
+
+  .tier-drop {
+    flex: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    padding: 10px;
+    min-height: 120px;
+  }
+  .unranked {
+    background: #16213e;
+    border-radius: 8px;
+    padding: 10px;
+    margin-top: 20px;
+  }
+  .unranked h3 { margin-bottom: 10px; }
+  .unranked .tier-drop { min-height: 140px; }
+
+  .movie-card {
+    width: 100px;
+    background: #0f3460;
+    border-radius: 6px;
+    overflow: hidden;
+    cursor: grab;
+    position: relative;
+    text-align: center;
+  }
+  .movie-card img {
+    width: 100%;
+    height: 140px;
+    object-fit: cover;
+    display: block;
+    background: #333;
+  }
+  .movie-card .no-img {
+    width: 100%;
+    height: 140px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #333;
+    color: #999;
+    font-size: 13px;
+  }
+  .movie-card .title {
+    font-size: 12px;
+    padding: 5px 3px;
+    word-break: keep-all;
+  }
+  .movie-card.dragging { opacity: 0.4; }
+
+  .card-btns {
+    display: flex;
+    border-top: 1px solid #1a1a2e;
+  }
+  .card-btns button {
+    flex: 1;
+    background: #16213e;
+    color: #ccc;
+    border: none;
+    padding: 5px 0;
+    cursor: pointer;
+    font-size: 11px;
+  }
+  .card-btns button:hover { background: #0f3460; color: #fff; }
+
+  .drop-hint { color: #556; font-size: 13px; align-self: center; }
+</style>
+</head>
+<body>
+  <h1>🎬 영화 티어리스트</h1>
+
+  <div class="controls">
+    <button onclick="addMovie()">+ 영화 추가</button>
+  </div>
+
+  <div id="tiers">
+    <div class="tier-row">
+      <div class="tier-label tier-S">S</div>
+      <div class="tier-drop" data-tier="S"></div>
+    </div>
+    <div class="tier-row">
+      <div class="tier-label tier-A">A</div>
+      <div class="tier-drop" data-tier="A"></div>
+    </div>
+    <div class="tier-row">
+      <div class="tier-label tier-B">B</div>
+      <div class="tier-drop" data-tier="B"></div>
+    </div>
+    <div class="tier-row">
+      <div class="tier-label tier-C">C</div>
+      <div class="tier-drop" data-tier="C"></div>
+    </div>
+  </div>
+
+  <div class="unranked">
+    <h3>📥 아직 등급을 안 정한 영화</h3>
+    <div class="tier-drop" data-tier="unranked"></div>
+  </div>
+
+  <!-- 숨겨진 파일 입력 (이미지 업로드용) -->
+  <input type="file" id="fileInput" accept="image/*" style="display:none">
+
+<script>
+  // ===== 데이터 =====
+  // 영화 하나는 { id, title, tier, img } 형태예요.
+  let movies = [];
+  let uploadTargetId = null; // 지금 어떤 영화에 사진을 올리는 중인지 기억
+
+  // 처음 실행 시 기본 8편 (지브리 영화)
+  const DEFAULT_MOVIES = [
+    "귀를 기울이면", "모노노케 히메", "센과 치히로의 행방불명",
+    "마녀 배달부 키키", "이웃집 토토로", "하울의 움직이는 성",
+    "바람계곡의 나우시카", "천공의 성 라퓨타"
+  ];
+
+  // ===== 저장 / 불러오기 =====
+  function save() {
+    localStorage.setItem('movieTierList', JSON.stringify(movies));
+  }
+
+  function load() {
+    const data = localStorage.getItem('movieTierList');
+    if (data) {
+      movies = JSON.parse(data);
+    } else {
+      // 처음이면 기본 영화들을 미분류로 채우기
+      movies = DEFAULT_MOVIES.map((title, i) => ({
+        id: Date.now() + i,
+        title: title,
+        tier: 'unranked',
+        img: ''
+      }));
+      save();
+    }
+  }
+
+  // ===== 화면 그리기 =====
+  function render() {
+    // 모든 칸 비우기
+    document.querySelectorAll('.tier-drop').forEach(d => d.innerHTML = '');
+
+    // 영화들을 각자 등급 칸에 넣기
+    movies.forEach(movie => {
+      const zone = document.querySelector(`.tier-drop[data-tier="${movie.tier}"]`);
+      if (zone) zone.appendChild(createCard(movie));
+    });
+
+    // 각 칸이 비었으면 안내 문구
+    document.querySelectorAll('.tier-drop').forEach(d => {
+      if (d.children.length === 0) {
+        const hint = document.createElement('span');
+        hint.className = 'drop-hint';
+        hint.textContent = '여기로 영화를 끌어다 놓으세요';
+        d.appendChild(hint);
+      }
+    });
+  }
+
+  // 영화 카드 하나 만들기
+  function createCard(movie) {
+    const card = document.createElement('div');
+    card.className = 'movie-card';
+    card.draggable = true;
+    card.dataset.id = movie.id;
+
+    // 포스터 (있으면 이미지, 없으면 안내)
+    const imgHtml = movie.img
+      ? `<img src="${movie.img}" alt="${movie.title}">`
+      : `<div class="no-img">사진 없음</div>`;
+
+    card.innerHTML = `
+      ${imgHtml}
+      <div class="title">${movie.title}</div>
+      <div class="card-btns">
+        <button onclick="uploadPoster(${movie.id})">사진</button>
+        <button onclick="editMovie(${movie.id})">수정</button>
+        <button onclick="deleteMovie(${movie.id})">삭제</button>
+      </div>
+    `;
+
+    // 드래그 이벤트
+    card.addEventListener('dragstart', () => {
+      card.classList.add('dragging');
+    });
+    card.addEventListener('dragend', () => {
+      card.classList.remove('dragging');
+    });
+
+    return card;
+  }
+
+  // ===== 드래그 앤 드롭 =====
+  document.querySelectorAll('.tier-drop').forEach(zone => {
+    zone.addEventListener('dragover', (e) => {
+      e.preventDefault(); // 놓기를 허용
+    });
+    zone.addEventListener('drop', (e) => {
+      e.preventDefault();
+      const dragging = document.querySelector('.dragging');
+      if (!dragging) return;
+      const id = Number(dragging.dataset.id);
+      const newTier = zone.dataset.tier;
+      // 데이터에서 해당 영화의 등급 변경
+      const movie = movies.find(m => m.id === id);
+      if (movie) {
+        movie.tier = newTier;
+        save();
+        render();
+      }
+    });
+  });
+
+  // ===== 영화 추가 =====
+  function addMovie() {
+    const title = prompt('추가할 영화 제목을 입력하세요:');
+    if (title && title.trim() !== '') {
+      movies.push({
+        id: Date.now(),
+        title: title.trim(),
+        tier: 'unranked',
+        img: ''
+      });
+      save();
+      render();
+    }
+  }
+
+  // ===== 영화 수정 =====
+  function editMovie(id) {
+    const movie = movies.find(m => m.id === id);
+    if (!movie) return;
+    const newTitle = prompt('영화 제목을 수정하세요:', movie.title);
+    if (newTitle && newTitle.trim() !== '') {
+      movie.title = newTitle.trim();
+      save();
+      render();
+    }
+  }
+
+  // ===== 영화 삭제 =====
+  function deleteMovie(id) {
+    const movie = movies.find(m => m.id === id);
+    if (!movie) return;
+    if (confirm(`'${movie.title}'을(를) 삭제할까요?`)) {
+      movies = movies.filter(m => m.id !== id);
+      save();
+      render();
+    }
+  }
+
+  // ===== 포스터 업로드 =====
+  function uploadPoster(id) {
+    uploadTargetId = id;
+    document.getElementById('fileInput').click(); // 파일 선택창 열기
+  }
+
+  // 파일이 선택되면 실행
+  document.getElementById('fileInput').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const compressed = await compressImage(file, 300, 0.7); // 압축!
+    const movie = movies.find(m => m.id === uploadTargetId);
+    if (movie) {
+      movie.img = compressed;
+      save();
+      render();
+    }
+    e.target.value = ''; // 같은 파일 다시 올릴 수 있게 초기화
+  });
+
+  // ===== 이미지 압축 =====
+  function compressImage(file, maxWidth, quality) {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const scale = maxWidth / img.width;
+          const width = maxWidth;
+          const height = img.height * scale;
+          const canvas = document.createElement('canvas');
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+          resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
